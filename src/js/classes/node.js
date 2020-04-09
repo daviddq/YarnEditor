@@ -285,12 +285,22 @@ export var Node = function(options = {}) {
 
         var newX = pageX / self.getScale() - offset[0];
         var newY = pageY / self.getScale() - offset[1];
-        var movedX = newX - self.x();
-        var movedY = newY - self.y();
 
-        moved = true;
+        if (e.metaKey || e.ctrlKey) {
+          newX = Math.floor(newX/10) * 10;
+          newY = Math.floor(newY/10) * 10;
+        }
+        else if (e.altKey) {
+          newX = Math.floor(newX/50) * 50;
+          newY = Math.floor(newY/50) * 50;
+        }
+
         self.x(newX);
         self.y(newY);
+
+        moved = true;
+        var movedX = newX - self.x();
+        var movedY = newY - self.y();
 
         if (groupDragging) {
           var nodes = [];
