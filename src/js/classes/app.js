@@ -5,14 +5,28 @@ import {
   load_dictionary,
 } from '../libs/spellcheck_ace.js';
 import { Node } from './node';
+import { Workspace } from './workspace';
 import { data } from './data';
 import { yarnRender } from './renderer';
 import { Utils, FILETYPE } from './utils';
 
-export var App = function(name, version) {
-  var self = this;
+// TODO: refactoring proposals
+//
+// Create Settings class: manages user settings using window.localStorage
+// Create UI class: manages menus, buttons, search, settings dialog...
+// Create:
+//   RichTextFormater interface
+//   RichTextFormaterBbcode implementation
+//   RichTextFormaterXml implementation
+// Rename yarnRender to YarnPlayer
 
-  // self
+export var App = function(name, version) {
+  const self = this;
+
+  // Ideally this dependencies should be injected by index.js
+  this.workspace = new Workspace(self);
+  this.previewStory = new yarnRender();
+
   this.instance = this;
   this.data = data;
   this.name = ko.observable(name);
@@ -21,14 +35,10 @@ export var App = function(name, version) {
   this.deleting = ko.observable(null);
   this.nodes = ko.observableArray([]);
   this.cachedScale = 1;
-  this.canvas;
-  this.context;
   this.nodeHistory = [];
   this.nodeFuture = [];
   this.editingHistory = [];
-  //this.appleCmdKey = false;
   this.editingSaveHistoryTimeout = null;
-  this.previewStory = new yarnRender();
   this.dirty = false;
   this.focusedNodeIdx = -1;
   this.zoomSpeed = 0.005;
@@ -47,11 +57,7 @@ export var App = function(name, version) {
   this.selectedLanguageIndex = 6;
   this.language = null;
   this.hasTouchScreen = false;
-  // this.fs = fs;
 
-  this.UPDATE_ARROWS_THROTTLE_MS = 25;
-
-  // this.parser = new ini.Parser();
   this.configFilePath = null;
   this.config = {
     nightModeEnabled: false,
@@ -69,9 +75,6 @@ export var App = function(name, version) {
   };
 
   this.editingPath = ko.observable(null);
-
-  this.nodeSelection = [];
-
   this.$searchField = $('.search-field');
 
   this.run = function() {
@@ -99,8 +102,6 @@ export var App = function(name, version) {
     $('#app').show();
     ko.applyBindings(self, $('#app')[0]);
 
-    self.canvas = $('.arrows')[0];
-    self.context = self.canvas.getContext('2d');
     self.newNode().title('Start');
 
     // search field enter
@@ -150,8 +151,6 @@ export var App = function(name, version) {
         });
       },
     };
-    // updateArrows
-    // setInterval(function() { self.updateArrows(); }, 16);
 
     // drag node holder around
     (function() {
@@ -162,7 +161,6 @@ export var App = function(name, version) {
       var MarqRect = { x1: 0, y1: 0, x2: 0, y2: 0 };
       var MarqueeOffset = [0, 0];
       var midClickHeld = false;
-      var updateArrowsInterval;
 
       $('.nodes').on('pointerdown', function(e) {
         if (e.button == 1) {
@@ -180,9 +178,9 @@ export var App = function(name, version) {
         MarqueeOffset[0] = 0;
         MarqueeOffset[1] = 0;
 
-        if (!e.altKey && !e.shiftKey) self.deselectAllNodes();
-
-        updateArrowsInterval = setInterval(self.updateArrowsThrottled, 16);
+        if (!e.altKey && !e.shiftKey) {
+          self.workspace.deselectAll();
+        }
       });
 
       $('.nodes').on('mousemove touchmove', function(e) {
@@ -214,6 +212,8 @@ export var App = function(name, version) {
               }
               offset.x = pageX;
               offset.y = pageY;
+
+              self.workspace.updateArrows();
             }
           } else {
             MarqueeOn = true;
@@ -270,12 +270,12 @@ export var App = function(name, version) {
 
               if (marqueeOverNode) {
                 if (!inMarqueeSelection) {
-                  self.addNodeSelected(nodes[i]);
+                  self.workspace.addNodesToSelection(nodes[i]);
                   MarqueeSelection.push(nodes[i]);
                 }
               } else {
                 if (inMarqueeSelection) {
-                  self.removeNodeSelection(nodes[i]);
+                  self.workspace.removeNodesFromSelection(nodes[i]);
                   MarqueeSelection.splice(index, 1);
                 }
               }
@@ -285,16 +285,13 @@ export var App = function(name, version) {
       });
 
       $('.nodes').on('pointerup', function(e) {
-        clearInterval(updateArrowsInterval);
-
-        // console.log("finished dragging");
         if (e.button == 1) {
           midClickHeld = false;
         }
         dragging = false;
 
         if (MarqueeOn && MarqueeSelection.length == 0) {
-          self.deselectAllNodes();
+          self.workspace.deselectAll();
         }
 
         MarqueeSelection = [];
@@ -374,7 +371,7 @@ export var App = function(name, version) {
             self.historyDirection('redo');
             break;
           case 68: // ctrl+d
-            self.deselectAllNodes();
+            self.workspace.deselectAll();
         }
       }
     });
@@ -446,11 +443,11 @@ export var App = function(name, version) {
       } else {
         // ctrl + c NODES
         if ((e.metaKey || e.ctrlKey) && e.keyCode == 67) {
-          self.nodeClipboard = app.cloneNodeArray(self.getSelectedNodes());
+          self.nodeClipboard = app.cloneNodeArray(self.workspace.getSelectedNodes());
         }
         // ctrl + x NODES
         else if ((e.metaKey || e.ctrlKey) && e.keyCode == 88) {
-          self.nodeClipboard = app.cloneNodeArray(self.getSelectedNodes());
+          self.nodeClipboard = app.cloneNodeArray(self.workspace.getSelectedNodes());
           self.deleteSelectedNodes();
         }
       }
@@ -492,7 +489,7 @@ export var App = function(name, version) {
       if (!self.editing()) {
         // ctrl + a
         if ((e.metaKey || e.ctrlKey) && e.keyCode == 65) {
-          self.selectAllNodes();
+          self.workspace.selectAll();
         }
         // ctrl + v NODES
         if ((e.metaKey || e.ctrlKey) && e.keyCode == 86) {
@@ -549,7 +546,7 @@ export var App = function(name, version) {
         if (self.editing() !== null && !e.altKey) {
           return; // alt+spacebar to toggle between open nodes
         }
-        var selectedNodes = self.getSelectedNodes();
+        var selectedNodes = self.workspace.getSelectedNodes();
         var nodes = selectedNodes.length > 0 ? selectedNodes : self.nodes();
         var isNodeSelected = selectedNodes.length > 0;
         if (
@@ -572,9 +569,9 @@ export var App = function(name, version) {
         }
         self.cachedScale = 1;
         if (isNodeSelected) {
-          self.warpToSelectedNodeIdx(self.focusedNodeIdx);
+          self.workspace.warpToSelectedNodeByIdx(self.focusedNodeIdx);
         } else {
-          self.warpToNodeIdx(self.focusedNodeIdx);
+          self.workspace.warpToNodeByIdx(self.focusedNodeIdx);
         }
 
         if (self.editing() !== null) {
@@ -583,7 +580,7 @@ export var App = function(name, version) {
       }
     });
 
-    $(window).on('resize', self.updateArrowsThrottled);
+    $(window).on('resize', self.workspace.updateArrows);
 
     $(document).on('keyup keydown pointerdown pointerup', function(e) {
       if (self.editing() != null) {
@@ -882,7 +879,7 @@ export var App = function(name, version) {
   };
 
   this.mouseUpOnNodeNotMoved = function() {
-    self.deselectAllNodes();
+    self.workspace.deselectAll();
   };
 
   this.matchConnectedColorID = function(fromNode) {
@@ -995,34 +992,10 @@ export var App = function(name, version) {
   };
 
   this.setSelectedColors = function(node) {
-    var nodes = self.getSelectedNodes();
+    var nodes = self.workspace.getSelectedNodes();
     nodes.splice(nodes.indexOf(node), 1);
 
     for (var i in nodes) nodes[i].colorID(node.colorID());
-  };
-
-  this.getSelectedNodes = function() {
-    var selectedNode = [];
-
-    for (var i in self.nodeSelection) {
-      selectedNode.push(self.nodeSelection[i]);
-    }
-
-    return selectedNode;
-  };
-
-  this.deselectAllNodes = function() {
-    var nodes = self.nodes();
-    for (var i in nodes) {
-      self.removeNodeSelection(nodes[i]);
-    }
-  };
-
-  this.selectAllNodes = function() {
-    var nodes = self.nodes();
-    for (var i in nodes) {
-      self.addNodeSelected(nodes[i]);
-    }
   };
 
   this.pasteNodes = function() {
@@ -1030,7 +1003,7 @@ export var App = function(name, version) {
       return;
     }
 
-    self.deselectAllNodes();
+    self.workspace.deselectAll();
 
     self.nodeClipboard.forEach(function(copiedNode) {
       var node = new Node({
@@ -1043,33 +1016,17 @@ export var App = function(name, version) {
       });
 
       self.nodes.push(node);
-      self.addNodeSelected(node);
+      self.workspace.addNodesToSelection(node);
       self.recordNodeAction('created', node);
     });
 
     self.updateNodeLinks();
   };
 
-  this.addNodeSelected = function(node) {
-    var index = self.nodeSelection.indexOf(node);
-    if (index < 0) {
-      self.nodeSelection.push(node);
-      node.setSelected(true);
-    }
-  };
-
-  this.removeNodeSelection = function(node) {
-    var index = self.nodeSelection.indexOf(node);
-    if (index >= 0) {
-      self.nodeSelection.splice(index, 1);
-      node.setSelected(false);
-    }
-  };
-
   this.deleteSelectedNodes = function() {
-    var nodes = self.getSelectedNodes();
+    var nodes = self.workspace.getSelectedNodes();
     for (var i in nodes) {
-      self.removeNodeSelection(nodes[i]);
+      self.workspace.removeNodesFromSelection(nodes[i]);
       nodes[i].remove();
     }
   };
@@ -1087,10 +1044,11 @@ export var App = function(name, version) {
     });
   };
 
-  this.newNode = function(updateArrows) {
+  this.newNode = function(updateLinks=true) {
     var node = new Node();
     self.nodes.push(node);
-    if (updateArrows == undefined || updateArrows == true)
+
+    if (updateLinks)
       self.updateNodeLinks();
 
     self.recordNodeAction('created', node);
@@ -1423,7 +1381,11 @@ export var App = function(name, version) {
     });
   };
 
-  this.togglePlayMode = function(playModeOverwrite) {
+  this.advanceStoryPlayMode = function(speed = 5) {
+    self.previewStory.changeTextScrollSpeed(speed);
+  };
+
+  this.togglePlayMode = function(playModeOverwrite = false) {
     if (!playModeOverwrite && self.previewStory.finished) return;
     var editor = $('.editor')[0];
     var storyPreviewPlayButton = document.getElementById('storyPlayButton');
@@ -1454,7 +1416,6 @@ export var App = function(name, version) {
       editor.style.display = 'flex';
       storyPreviewPlayButton.className = 'bbcode-button';
       self.previewStory.finished = true;
-      console.log(self.previewStory.finished);
       setTimeout(() => {
         if (self.editing().title() !== self.previewStory.node.title)
           self.openNodeByTitle(self.previewStory.node.title);
@@ -1604,7 +1565,7 @@ export var App = function(name, version) {
             p.setAttribute('onclick', `app.openNodeByTitle("${node.title()}")`);
             p.setAttribute(
               'onmouseover',
-              `app.warpToNodeIdx(${self.nodes.indexOf(node)})`
+              `app.workspace.warpToNodeByIdx(${self.nodes.indexOf(node)})`
             );
             rootMenu.appendChild(p);
           }
@@ -1629,6 +1590,7 @@ export var App = function(name, version) {
 
       self.makeNewNodesFromLinks();
       self.propagateUpdateFromNode(self.editing());
+      self.workspace.updateArrows();
 
       // Save user settings
       const autoCompleteButton = document.getElementById('toglAutocomplete');
@@ -1648,6 +1610,7 @@ export var App = function(name, version) {
           self.editing(null);
         });
       }
+
     }
   };
 
@@ -1707,7 +1670,9 @@ export var App = function(name, version) {
   };
 
   this.updateNodeLinks = function() {
-    for (var i in self.nodes()) self.nodes()[i].updateLinks();
+    for (let node of self.nodes()) {
+      node.updateLinks();
+    }
   };
 
   // TODO: probably 'propagateUpdateFromNode' can be used as a
@@ -1800,93 +1765,6 @@ export var App = function(name, version) {
     });
     return result;
   };
-
-  this.updateArrows = function() {
-    self.canvas.width = $(window).width();
-    self.canvas.height = $(window).height();
-
-    var scale = self.cachedScale;
-    var offset = $('.nodes-holder').offset();
-
-    self.context.clearRect(0, 0, $(window).width(), $(window).height());
-    self.context.lineWidth = 4 * scale;
-
-    var nodes = self.nodes();
-
-    for (var i in nodes) {
-      var node = nodes[i];
-      nodes[i].tempWidth = $(node.element).width();
-      nodes[i].tempHeight = $(node.element).height();
-      nodes[i].tempOpacity = $(node.element).css('opacity');
-    }
-
-    for (var index in nodes) {
-      var node = nodes[index];
-      if (node.linkedTo().length > 0) {
-        for (var link in node.linkedTo()) {
-          link = link.trim();
-          var linked = node.linkedTo()[link];
-
-          // get origins
-          var fromX = (node.x() + node.tempWidth / 2) * scale + offset.left;
-          var fromY = (node.y() + node.tempHeight / 2) * scale + offset.top;
-          var toX = (linked.x() + linked.tempWidth / 2) * scale + offset.left;
-          var toY = (linked.y() + linked.tempHeight / 2) * scale + offset.top;
-
-          // get the normal
-          var distance = Math.sqrt(
-            (fromX - toX) * (fromX - toX) + (fromY - toY) * (fromY - toY)
-          );
-          var normal = {
-            x: (toX - fromX) / distance,
-            y: (toY - fromY) / distance,
-          };
-
-          var dist =
-            110 + 160 * (1 - Math.max(Math.abs(normal.x), Math.abs(normal.y)));
-
-          // get from / to
-          var from = {
-            x: fromX + normal.x * dist * scale,
-            y: fromY + normal.y * dist * scale,
-          };
-          var to = {
-            x: toX - normal.x * dist * scale,
-            y: toY - normal.y * dist * scale,
-          };
-
-          self.context.strokeStyle =
-            'rgba(0, 0, 0, ' + node.tempOpacity * 0.6 + ')';
-          self.context.fillStyle =
-            'rgba(0, 0, 0, ' + node.tempOpacity * 0.6 + ')';
-
-          // draw line
-          self.context.beginPath();
-          self.context.moveTo(from.x, from.y);
-          self.context.lineTo(to.x, to.y);
-          self.context.stroke();
-
-          // draw arrow
-          self.context.beginPath();
-          self.context.moveTo(to.x + normal.x * 4, to.y + normal.y * 4);
-          self.context.lineTo(
-            to.x - normal.x * 16 * scale - normal.y * 12 * scale,
-            to.y - normal.y * 16 * scale + normal.x * 12 * scale
-          );
-          self.context.lineTo(
-            to.x - normal.x * 16 * scale + normal.y * 12 * scale,
-            to.y - normal.y * 16 * scale - normal.x * 12 * scale
-          );
-          self.context.fill();
-        }
-      }
-    }
-  };
-
-  this.updateArrowsThrottled = Utils.throttle(
-    this.updateArrows,
-    this.UPDATE_ARROWS_THROTTLE_MS
-  );
 
   this.getHighlightedText = function(text) {
     text = text.replace(/\</g, '&lt;');
@@ -2119,7 +1997,8 @@ export var App = function(name, version) {
   };
 
   this.translate = function(speed) {
-    var updateArrowsInterval = setInterval(self.updateArrowsThrottled, 16);
+    if (speed)
+      self.workspace.startUpdatingArrows();
 
     $('.nodes-holder').transition(
       {
@@ -2137,156 +2016,18 @@ export var App = function(name, version) {
       speed || 0,
       'easeInQuad',
       function() {
-        clearInterval(updateArrowsInterval);
-        self.updateArrowsThrottled();
+        if (speed) {
+          self.workspace.stopUpdatingArrows();
+        }
+        self.workspace.updateArrows();
       }
     );
-  };
-
-  /**
-   * Align selected nodes relative to a node with the lowest x-value
-   */
-  this.arrangeX = function() {
-    var SPACING = 210;
-
-    var selectedNodes = self
-        .nodes()
-        .filter(function(el) {
-          return el.selected;
-        })
-        .sort(function(a, b) {
-          if (a.x() > b.x()) return 1;
-          if (a.x() < b.x()) return -1;
-          return 0;
-        }),
-      referenceNode = selectedNodes.shift();
-
-    if (!selectedNodes.length) {
-      alert('Select nodes to align');
-      return;
-    }
-
-    selectedNodes.forEach(function(node, i) {
-      var x = referenceNode.x() + SPACING * (i + 1);
-      node.moveTo(x, referenceNode.y());
-    });
-  };
-
-  /**
-   * Align selected nodes relative to a node with the lowest y-value
-   */
-  this.arrangeY = function() {
-    var SPACING = 210;
-
-    var selectedNodes = self
-        .nodes()
-        .filter(function(el) {
-          return el.selected;
-        })
-        .sort(function(a, b) {
-          if (a.y() > b.y()) return 1;
-          if (a.y() < b.y()) return -1;
-          return 0;
-        }),
-      referenceNode = selectedNodes.shift();
-
-    if (!selectedNodes.length) {
-      alert('Select nodes to align');
-      return;
-    }
-
-    selectedNodes.forEach(function(node, i) {
-      var y = referenceNode.y() + SPACING * (i + 1);
-      node.moveTo(referenceNode.x(), y);
-    });
-  };
-
-  this.arrangeSpiral = function() {
-    const selectedNodes = self.getSelectedNodes();
-
-    if (!selectedNodes.length) {
-      alert('Select nodes to align');
-      return;
-    }
-
-    for (var i in selectedNodes) {
-      var node = selectedNodes[i];
-      var y = Math.sin(i * 0.5) * (600 + i * 30);
-      var x = Math.cos(i * 0.5) * (600 + i * 30);
-      node.moveTo(x, y);
-    }
-  };
-
-  this.sortAlphabetical = function() {
-    const selectedNodes = self.getSelectedNodes();
-
-    if (!selectedNodes.length) {
-      alert('Select nodes to align');
-      return;
-    }
-
-    selectedNodes.sort(function(a, b) {
-      return a.title().localeCompare(b.title());
-    });
-
-    var arrayWidth = Math.round(selectedNodes.length / 2);
-    var arrayX = 0;
-    var arrayY = 0;
-    selectedNodes.forEach(function(node, i) {
-      if (i % arrayWidth === 0) {
-        arrayY += 1;
-        arrayX = 0;
-      } else {
-        arrayX += 1;
-      }
-      if (i === 1) arrayY = 0;
-      node.moveTo(
-        selectedNodes[0].x() + 210 * arrayX,
-        selectedNodes[0].y() + arrayY * 210
-      );
-    });
-
-    self.warpToNodeIdx(self.nodes.indexOf(selectedNodes[0]));
   };
 
   this.moveNodes = function(offX, offY) {
     for (var i in self.nodes()) {
       var node = self.nodes()[i];
       node.moveTo(node.x() + offX, node.y() + offY);
-    }
-  };
-
-  this.warpToNodeIdx = function(idx) {
-    if (self.nodes().length > idx) {
-      var node = self.nodes()[idx];
-      var nodeXScaled = -(node.x() * self.cachedScale),
-        nodeYScaled = -(node.y() * self.cachedScale),
-        winXCenter = $(window).width() / 2,
-        winYCenter = $(window).height() / 2,
-        nodeWidthShift = (node.tempWidth * self.cachedScale) / 2,
-        nodeHeightShift = (node.tempHeight * self.cachedScale) / 2;
-
-      self.transformOrigin[0] = nodeXScaled + winXCenter - nodeWidthShift;
-      self.transformOrigin[1] = nodeYScaled + winYCenter - nodeHeightShift;
-      self.translate(100);
-      self.focusedNodeIdx = idx;
-    }
-  };
-
-  this.warpToSelectedNodeIdx = function(idx) {
-    if (self.getSelectedNodes().length > idx) {
-      var node = self.getSelectedNodes()[idx];
-      var nodeXScaled = -(node.x() * self.cachedScale),
-        nodeYScaled = -(node.y() * self.cachedScale),
-        winXCenter = $(window).width() / 2,
-        winYCenter = $(window).height() / 2,
-        nodeWidthShift = (node.tempWidth * self.cachedScale) / 2,
-        nodeHeightShift = (node.tempHeight * self.cachedScale) / 2;
-
-      self.transformOrigin[0] = nodeXScaled + winXCenter - nodeWidthShift;
-      self.transformOrigin[1] = nodeYScaled + winYCenter - nodeHeightShift;
-      self.translate(100);
-      self.focusedNodeIdx = idx;
     }
   };
 
@@ -2298,23 +2039,6 @@ export var App = function(name, version) {
         .includes(search)
     );
   };
-  this.warpToNodeXY = function(x, y) {
-    //alert("warp to x, y: " + x + ", " + y);
-    const nodeWidth = 100,
-      nodeHeight = 100;
-    var nodeXScaled = -(x * self.cachedScale),
-      nodeYScaled = -(y * self.cachedScale),
-      winXCenter = $(window).width() / 2,
-      winYCenter = $(window).height() / 2,
-      nodeWidthShift = (nodeWidth * self.cachedScale) / 2,
-      nodeHeightShift = (nodeHeight * self.cachedScale) / 2;
-
-    self.transformOrigin[0] = nodeXScaled + winXCenter - nodeWidthShift;
-    self.transformOrigin[1] = nodeYScaled + winYCenter - nodeHeightShift;
-
-    //alert("self.transformOrigin[0]: " + self.transformOrigin[0]);
-    self.translate(100);
-  };
 
   this.searchWarp = function() {
     // if search field is empty
@@ -2325,10 +2049,10 @@ export var App = function(name, version) {
 
     if (search === '') {
       // warp to the first node
-      self.warpToNodeIdx(0);
+      self.workspace.warpToNodeByIdx(0);
     } else {
       const foundNode = self.getFirstFoundNode(search);
-      self.warpToNodeIdx(self.nodes.indexOf(foundNode));
+      self.workspace.warpToNodeByIdx(self.nodes.indexOf(foundNode));
     }
   };
 

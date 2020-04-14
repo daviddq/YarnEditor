@@ -139,7 +139,6 @@ export var Node = function(options = {}) {
   this.canDoubleClick = true;
 
   this.create = function() {
-    Utils.pushToTop($(self.element));
     self.style = window.getComputedStyle($(self.element).get(0));
 
     if (self.createX && self.createY) {
@@ -151,7 +150,8 @@ export var Node = function(options = {}) {
       self.y(-parent.offset().top + $(window).height() / 2 - 100);
     }
 
-    var updateArrowsInterval = setInterval(app.updateArrowsThrottled, 16);
+    app.workspace.bringToFront(self.element);
+    app.workspace.startUpdatingArrows();
 
     $(self.element)
       .css({ opacity: 0, scale: 0.8, y: '-=80px', rotate: '45deg' })
@@ -165,8 +165,8 @@ export var Node = function(options = {}) {
         250,
         'easeInQuad',
         function() {
-          clearInterval(updateArrowsInterval);
-          app.updateArrowsThrottled();
+          app.workspace.stopUpdatingArrows();
+          app.workspace.updateArrows();
         }
       );
     self.drag();
@@ -181,8 +181,8 @@ export var Node = function(options = {}) {
 
     $(self.element).on('click', function(e) {
       if (e.ctrlKey) {
-        if (self.selected) app.removeNodeSelection(self);
-        else app.addNodeSelected(self);
+        if (self.selected) app.workspace.removeNodesFromSelection(self);
+        else app.workspace.addNodesToSelection(self);
       }
     });
   };
@@ -258,7 +258,7 @@ export var Node = function(options = {}) {
       'easeInQuad',
       function() {
         app.removeNode(self);
-        app.updateArrowsThrottled();
+        app.workspace.updateArrows();
       }
     );
     app.deleting(null);
@@ -267,13 +267,11 @@ export var Node = function(options = {}) {
   this.drag = function() {
     var dragging = false;
     var groupDragging = false;
-
     var offset = [0, 0];
     var moved = false;
 
     $(document.body).on('mousemove touchmove', function(e) {
       if (dragging) {
-        var parent = $(self.element).parent();
         const pageX =
           app.hasTouchScreen && e.changedTouches
             ? e.changedTouches[0].pageX
@@ -305,7 +303,7 @@ export var Node = function(options = {}) {
         if (groupDragging) {
           var nodes = [];
           if (self.selected) {
-            nodes = app.getSelectedNodes();
+            nodes = app.workspace.getSelectedNodes();
             nodes.splice(nodes.indexOf(self), 1);
           } else {
             nodes = app.getNodesConnectedTo(self);
@@ -319,8 +317,7 @@ export var Node = function(options = {}) {
           }
         }
 
-        //app.refresh();
-        app.updateArrowsThrottled();
+        app.workspace.updateArrows();
       }
     });
 
@@ -343,32 +340,26 @@ export var Node = function(options = {}) {
       e.stopPropagation();
     });
 
-    $(self.element).on('pointerup', function(e) {
-      if (!moved) app.mouseUpOnNodeNotMoved();
-      moved = false;
-    });
+    $(self.element).on('pointerup touchend', function(e) {
+      if (!moved)
+        app.mouseUpOnNodeNotMoved();
 
-    $(document.body).on('pointerup touchend', function(e) {
+      moved = false;
       dragging = false;
       groupDragging = false;
-      moved = false;
-
-      if (app.hasTouchScreen) {
-        app.deselectAllNodes();
-      }
-
-      app.updateArrowsThrottled();
     });
   };
 
   this.moveTo = function(newX, newY) {
+    app.workspace.startUpdatingArrows();
+
     $(self.element).clearQueue();
     $(self.element).transition(
       {
         x: newX,
         y: newY,
       },
-      app.updateArrowsThrottled,
+      app.stopUpdatingArrows,
       500
     );
   };
@@ -484,7 +475,7 @@ ko.bindingHandlers.nodeBind = {
     bindingContext
   ) {
     $(element).on('pointerdown', function() {
-      Utils.pushToTop($(element));
+      app.workspace.bringToFront(element);
     });
   },
 };
