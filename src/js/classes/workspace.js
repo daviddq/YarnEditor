@@ -43,8 +43,8 @@ export const Workspace = function(app) {
   //
   // Sets the translation on the transform matrix
   this.setTranslation = function(x, y, time=0) {
-    self.transform.x = x;
-    self.transform.y = y;
+    self.transform.x = Utils.clamp(x, -3080, 0);
+    self.transform.y = Utils.clamp(y, -3920, 0);
     self.translate(time);
   };
 
@@ -151,6 +151,8 @@ export const Workspace = function(app) {
   //
   // Zooms in/out interactively applying zoom limits
   this.onZoom = function(x, y, delta) {
+    const mouseWS = self.toWorkspaceCoordinates(x, y);
+
     const previousScale = self.scale;
     const scaleChange = delta * self.zoomSpeed * self.scale;
 
@@ -158,7 +160,8 @@ export const Workspace = function(app) {
       self.scale + scaleChange,
       self.zoomLimitMin,
       self.zoomLimitMax
-    );
+      );
+
 
     const mouseX = x - self.transform.x;
     const mouseY = y - self.transform.y;
@@ -168,7 +171,11 @@ export const Workspace = function(app) {
     const deltaX = mouseX - newX;
     const deltaY = mouseY - newY;
 
-    self.shiftTranslation(deltaX, deltaY);
+    self.warpToXY(mouseWS.x, mouseWS.y);
+
+
+    // self.shiftTranslation(0, 0);
+    // self.shiftTranslation(deltaX, deltaY);
   };
 
   // onDragStart
