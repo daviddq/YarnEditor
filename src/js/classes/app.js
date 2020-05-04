@@ -152,9 +152,10 @@ export var App = function(name, version) {
     $('#app').show();
     ko.applyBindings(self, $('#app')[0]);
 
-    self.newNode().title('Start');
-
     self.settings.apply();
+
+    if ( !data.autoLoad() )
+      self.newNode().title('Start');
 
     // search field enter
     $('.search-title input').click(self.updateSearch);
@@ -1067,6 +1068,8 @@ export var App = function(name, version) {
           self.editing(null);
         });
       }
+
+      data.autoSave();
     }
   };
 

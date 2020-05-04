@@ -15,6 +15,7 @@ export var data = {
       ? path.join(path.dirname(filePath), addSubPath)
       : path.dirname(filePath);
   },
+
   readFile: function(file, filename, clearNodes) {
     // Read approach that works for webapps
     var reader = new FileReader();
@@ -416,6 +417,21 @@ export var data = {
     if (data.editingPath().length > 0 && data.editingType().length > 0) {
       data.saveTo(data.editingPath(), data.getSaveData(data.editingType()));
     }
+  },
+
+  autoSave: function() {
+    const story = JSON.stringify(data.getSaveData(FILETYPE.JSON));
+    window.localStorage.setItem('autosaveContent', story);
+  },
+
+  autoLoad: function() {
+    const story = JSON.parse(window.localStorage.getItem('autosaveContent'));
+
+    if (!story)
+      return false;
+
+    data.loadData(story, FILETYPE.JSON, true);
+    return true;
   },
 
   doesFileExist: function(filePath) {
