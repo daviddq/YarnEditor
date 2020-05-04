@@ -28,8 +28,8 @@ export const Workspace = function(app) {
   this.marqueeOffset = [0, 0];
 
   this.zoomSpeed = 0.005;
-  this.zoomLimitMin = 0.05;
-  this.zoomLimitMax = 1;
+  this.zoomLimitMin = 0.01;
+  this.zoomLimitMax = 2;
 
   // setThrottle
   //
@@ -43,8 +43,8 @@ export const Workspace = function(app) {
   //
   // Sets the translation on the transform matrix
   this.setTranslation = function(x, y, time=0) {
-    self.transform.x = Utils.clamp(x, -3080, 0);
-    self.transform.y = Utils.clamp(y, -3920, 0);
+    self.transform.x = Utils.clamp(x, -3080 - (1-self.scale) * -2500, (1-self.scale) * -2500);
+    self.transform.y = Utils.clamp(y, -3080, (1-self.scale) * -2500);
     self.translate(time);
   };
 
@@ -160,21 +160,17 @@ export const Workspace = function(app) {
       self.scale + scaleChange,
       self.zoomLimitMin,
       self.zoomLimitMax
-      );
-
+    );
 
     const mouseX = x - self.transform.x;
     const mouseY = y - self.transform.y;
     const newX = mouseX * (self.scale / previousScale);
     const newY = mouseY * (self.scale / previousScale);
 
-    const deltaX = mouseX - newX;
-    const deltaY = mouseY - newY;
+    self.shiftTranslation(0, 0);
 
-    self.warpToXY(mouseWS.x, mouseWS.y);
-
-
-    // self.shiftTranslation(0, 0);
+    // const deltaX = mouseX - newX;
+    // const deltaY = mouseY - newY;
     // self.shiftTranslation(deltaX, deltaY);
   };
 

@@ -91,7 +91,10 @@
 
 /*-- ----------------------------------------------------------------------- */
 
-/* #app-bg { */
+#app-bg {
+  background-color: cornflowerblue;
+}
+
 .nodes-holder {
   width:5000px;
   height:5000px;
